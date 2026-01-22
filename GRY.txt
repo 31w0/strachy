@@ -1,0 +1,427 @@
+//GRY 
+
+#define _CRT_SECURE_NO_WARNINGS
+
+#include <string.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <ctype.h>
+
+// --- Struktury danych ---
+typedef struct {
+    char tytul[100];
+    int rok;
+    char wydawca[100];
+    char platformy[100];
+    int ocena;
+} Dane;
+
+struct element {
+    Dane dane;
+    struct element* nastepny;
+    struct element* poprzedni;
+};
+
+// --- Funkcje pomocnicze ---
+struct element* utworz_element(Dane d) {
+    struct element* nowy = (struct element*)malloc(sizeof(struct element));
+    if (nowy == NULL) return NULL;
+    nowy->dane = d;
+    nowy->nastepny = NULL;
+    nowy->poprzedni = NULL;
+    return nowy;
+}
+
+void to_lower_str(char* str, char* out) {
+    int i = 0;
+    while (str[i]) {
+        out[i] = tolower((unsigned char)str[i]);
+        i++;
+    }
+    out[i] = '\0';
+}
+
+int porownaj(Dane a, Dane b, int kryterium) {
+    switch (kryterium) {
+    case 1: return _stricoll(a.tytul, b.tytul);
+    case 2: return (a.rok - b.rok);
+    case 3: return _stricoll(a.wydawca, b.wydawca);
+    case 4: return _stricoll(a.platformy, b.platformy);
+    case 5: return (b.ocena - a.ocena);
+    default: return 0;
+    }
+}
+
+// --- Prototypy funkcji ---
+void dodaj_na_koniec(struct element** poczatek, struct element** koniec, Dane d);
+void dodaj_inteligentnie(struct element** poczatek, struct element** koniec, Dane d, int* ostatnie_kryterium);
+void usun_element(struct element** poczatek, struct element** koniec, int numer);
+void wyczysc_liste(struct element** poczatek, struct element** koniec);
+void wyswietl_liste(struct element* poczatek);
+void wyszukaj_gry(struct element* poczatek, char* szukana_fraza);
+void zapisz_do_pliku(struct element* poczatek, const char* nazwa_pliku);
+void wczytaj_z_pliku(struct element** poczatek, struct element** koniec, const char* nazwa_pliku);
+void zamien_elementy(struct element** poczatek, struct element** koniec, struct element* a, struct element* b);
+void sortuj_liste(struct element** poczatek, struct element** koniec, int kryterium);
+
+
+// --- Menu i Main ---
+void menu() {
+    printf("\nMENU GLOWNE\n");
+    printf("1. Dodaj nowa gre\n");
+    printf("2. Wyswietl baze gier\n");
+    printf("3. Sortuj gry\n");
+    printf("4. Usun gre (po indeksie)\n");
+    printf("5. Wyszukaj gre (tekstowo)\n");
+    printf("6. Zapisz zmiany do pliku\n");
+    printf("0. Wyjscie\n");
+    printf("Wybor: ");
+}
+
+int main() {
+    struct element* poczatek = NULL;
+    struct element* koniec = NULL;
+    int wybor;
+    Dane d;
+    int kryterium_sortowania = 0;
+    char nazwa_pliku[] = "gry.csv";
+    char szukana[100];
+    int nr_do_usuniecia;
+
+    wczytaj_z_pliku(&poczatek, &koniec, nazwa_pliku);
+
+    while (1) {
+        menu();
+        if (scanf("%d", &wybor) != 1) {
+            printf("Bledne dane! Podaj liczbe.\n");
+            while (getchar() != '\n');
+            continue;
+        }
+        while (getchar() != '\n');
+
+        switch (wybor) {
+        case 1:
+            printf("--- Dodawanie gry ---\n");
+            printf("Tytul: "); scanf("%[^\n]", d.tytul); while (getchar() != '\n');
+            printf("Rok: "); scanf("%d", &d.rok); while (getchar() != '\n');
+            printf("Wydawca: "); scanf("%[^\n]", d.wydawca); while (getchar() != '\n');
+            printf("Platformy: "); scanf("%[^\n]", d.platformy); while (getchar() != '\n');
+            printf("Ocena: "); scanf("%d", &d.ocena);
+
+            dodaj_inteligentnie(&poczatek, &koniec, d, &kryterium_sortowania);
+            break;
+
+        case 2:
+            if (kryterium_sortowania != 0)
+                printf("[INFO] Lista posortowana wg kryterium: %d\n", kryterium_sortowania);
+            else
+                printf("[INFO] Lista nieposortowana.\n");
+            wyswietl_liste(poczatek);
+            break;
+
+        case 3:
+            printf("Kryterium sortowania:\n");
+            printf("1. Tytul\n2. Rok\n3. Wydawca\n4. Platformy\n5. Ocena\nWybor: ");
+            scanf("%d", &kryterium_sortowania);
+            sortuj_liste(&poczatek, &koniec, kryterium_sortowania);
+            wyswietl_liste(poczatek);
+            break;
+
+        case 4:
+            wyswietl_liste(poczatek);
+            printf("Podaj numer LP gry do usuniecia: ");
+            if (scanf("%d", &nr_do_usuniecia) == 1) {
+                usun_element(&poczatek, &koniec, nr_do_usuniecia);
+            }
+            else {
+                printf("Bledny numer.\n");
+                while (getchar() != '\n');
+            }
+            break;
+
+        case 5:
+            printf("Podaj fragment tekstu (tytul/wydawca/platforma): ");
+            scanf("%[^\n]", szukana);
+            wyszukaj_gry(poczatek, szukana);
+            break;
+
+        case 6:
+            zapisz_do_pliku(poczatek, nazwa_pliku);
+            break;
+
+        case 0:
+            wyczysc_liste(&poczatek, &koniec);
+            return 0;
+
+        default:
+            printf("Nieznana opcja.\n");
+        }
+    }
+    return 0;
+}
+
+
+// --- Funkcje ---
+void dodaj_na_koniec(struct element** poczatek, struct element** koniec, Dane d) {
+    struct element* nowy = utworz_element(d);
+    if (*koniec != NULL) {
+        (*koniec)->nastepny = nowy;
+        nowy->poprzedni = *koniec;
+    }
+    else {
+        *poczatek = nowy;
+    }
+    *koniec = nowy;
+}
+
+void dodaj_inteligentnie(struct element** poczatek, struct element** koniec, Dane d, int* ostatnie_kryterium) {
+    int decyzja;
+
+    if (*poczatek == NULL || *ostatnie_kryterium == 0) {
+        dodaj_na_koniec(poczatek, koniec, d);
+        printf("Dodano gre na koniec listy.\n");
+        return;
+    }
+
+    printf("\nUWAGA: Lista jest aktualnie posortowana.\n");
+    printf("1. Dodaj na koniec (PSUJE SORTOWANIE)\n");
+    printf("2. Dodaj inteligentnie (ZACHOWUJE SORTOWANIE)\n");
+    printf("Wybor: ");
+    scanf("%d", &decyzja);
+
+    switch (decyzja) {
+    case 1:
+        dodaj_na_koniec(poczatek, koniec, d);
+        *ostatnie_kryterium = 0;
+        printf("Dodano na koniec. Lista oznaczona jako nieposortowana.\n");
+        break;
+
+    case 2: {
+        struct element* nowy = utworz_element(d);
+        struct element* obecny = *poczatek;
+
+        while (obecny != NULL) {
+            if (porownaj(obecny->dane, d, *ostatnie_kryterium) > 0) {
+                if (obecny == *poczatek) {
+                    nowy->nastepny = *poczatek;
+                    (*poczatek)->poprzedni = nowy;
+                    *poczatek = nowy;
+                }
+                else {
+                    nowy->nastepny = obecny;
+                    nowy->poprzedni = obecny->poprzedni;
+                    obecny->poprzedni->nastepny = nowy;
+                    obecny->poprzedni = nowy;
+                }
+                printf("Wstawiono gre zachowujac kolejnosc.\n");
+                return;
+            }
+            obecny = obecny->nastepny;
+        }
+
+        if (*koniec != NULL) {
+            (*koniec)->nastepny = nowy;
+            nowy->poprzedni = *koniec;
+            *koniec = nowy;
+        }
+        else {
+            *poczatek = nowy;
+            *koniec = nowy;
+        }
+        printf("Wstawiono gre na koniec (zachowano kolejnosc).\n");
+        break;
+    }
+
+    default:
+        printf("Nieznana opcja. Anulowano dodawanie.\n");
+        break;
+    }
+}
+
+void usun_element(struct element** poczatek, struct element** koniec, int numer) {
+    if (*poczatek == NULL) {
+        printf("Lista jest pusta.\n");
+        return;
+    }
+
+    struct element* do_usuniecia = *poczatek;
+    int licznik = 1;
+
+    while (do_usuniecia != NULL && licznik < numer) {
+        do_usuniecia = do_usuniecia->nastepny;
+        licznik++;
+    }
+
+    if (do_usuniecia == NULL) {
+        printf("Nie ma elementu o numerze %d.\n", numer);
+        return;
+    }
+
+    if (do_usuniecia->poprzedni != NULL) {
+        do_usuniecia->poprzedni->nastepny = do_usuniecia->nastepny;
+    }
+    else {
+        *poczatek = do_usuniecia->nastepny;
+        if (*poczatek) (*poczatek)->poprzedni = NULL;
+    }
+
+    if (do_usuniecia->nastepny != NULL) {
+        do_usuniecia->nastepny->poprzedni = do_usuniecia->poprzedni;
+    }
+    else {
+        *koniec = do_usuniecia->poprzedni;
+        if (*koniec) (*koniec)->nastepny = NULL;
+    }
+
+    free(do_usuniecia);
+    printf("Usunieto element nr %d.\n", numer);
+}
+
+void wyczysc_liste(struct element** poczatek, struct element** koniec) {
+    struct element* biezacy = *poczatek;
+    struct element* nastepny_elem;
+
+    while (biezacy != NULL) {
+        nastepny_elem = biezacy->nastepny;
+        free(biezacy);
+        biezacy = nastepny_elem;
+    }
+    *poczatek = NULL;
+    *koniec = NULL;
+    printf("Pamiec wyczyszczona.\n");
+}
+
+void wyswietl_liste(struct element* poczatek) {
+    printf("\n==========================================================================================================\n");
+    printf("LP | %-30s | %-6s | %-20s | %-20s | %s\n", "TYTUL", "ROK", "WYDAWCA", "PLATFORMY", "OCENA");
+    printf("----------------------------------------------------------------------------------------------------------\n");
+    struct element* pomocniczy = poczatek;
+    if (pomocniczy == NULL) printf("Lista jest pusta.\n");
+
+    int i = 1;
+    while (pomocniczy != NULL) {
+        printf("%2d | %-30s | %-6d | %-20s | %-20s | %d\n",
+            i++,
+            pomocniczy->dane.tytul,
+            pomocniczy->dane.rok,
+            pomocniczy->dane.wydawca,
+            pomocniczy->dane.platformy,
+            pomocniczy->dane.ocena);
+        pomocniczy = pomocniczy->nastepny;
+    }
+    printf("==========================================================================================================\n\n");
+}
+
+void wyszukaj_gry(struct element* poczatek, char* szukana_fraza) {
+    printf("\n--- WYNIKI WYSZUKIWANIA DLA: '%s' ---\n", szukana_fraza);
+    struct element* obecny = poczatek;
+    int znaleziono = 0;
+
+    char bufor_dane[100];
+    char bufor_szukany[100];
+    to_lower_str(szukana_fraza, bufor_szukany);
+
+    int i = 1;
+    while (obecny != NULL) {
+        int pasuje = 0;
+
+        to_lower_str(obecny->dane.tytul, bufor_dane);
+        if (strstr(bufor_dane, bufor_szukany) != NULL) pasuje = 1;
+
+        to_lower_str(obecny->dane.wydawca, bufor_dane);
+        if (strstr(bufor_dane, bufor_szukany) != NULL) pasuje = 1;
+
+        to_lower_str(obecny->dane.platformy, bufor_dane);
+        if (strstr(bufor_dane, bufor_szukany) != NULL) pasuje = 1;
+
+        if (pasuje) {
+            printf("%2d | %-30s | %-6d | %-20s | %-20s | %d\n",
+                i, obecny->dane.tytul, obecny->dane.rok, obecny->dane.wydawca,
+                obecny->dane.platformy, obecny->dane.ocena);
+            znaleziono = 1;
+        }
+        obecny = obecny->nastepny;
+        i++;
+    }
+
+    if (!znaleziono) printf("Nie znaleziono pasujacych gier.\n");
+    printf("---------------------------------------\n");
+}
+
+void zapisz_do_pliku(struct element* poczatek, const char* nazwa_pliku) {
+    FILE* plik = fopen(nazwa_pliku, "w");
+    if (plik == NULL) {
+        printf("Blad otwarcia pliku do zapisu!\n");
+        return;
+    }
+    fprintf(plik, "tytyl;rok;wydawca;platformy;ocena\n");
+    struct element* biezacy = poczatek;
+    while (biezacy != NULL) {
+        fprintf(plik, "%s;%d;%s;%s;%d\n",
+            biezacy->dane.tytul, biezacy->dane.rok, biezacy->dane.wydawca,
+            biezacy->dane.platformy, biezacy->dane.ocena);
+        biezacy = biezacy->nastepny;
+    }
+    fclose(plik);
+    printf("Dane zapisano do pliku %s.\n", nazwa_pliku);
+}
+
+void wczytaj_z_pliku(struct element** poczatek, struct element** koniec, const char* nazwa_pliku) {
+    FILE* plik = fopen(nazwa_pliku, "r");
+    if (plik == NULL) {
+        printf("Nie znaleziono pliku %s. Rozpoczynam z pusta lista.\n", nazwa_pliku);
+        return;
+    }
+    char bufor[512];
+    if (fgets(bufor, sizeof(bufor), plik) == NULL) {
+        fclose(plik);
+        return;
+    }
+    Dane d;
+    while (fscanf(plik, " %[^;];%d;%[^;];%[^;];%d",
+        d.tytul, &d.rok, d.wydawca, d.platformy, &d.ocena) == 5) {
+        dodaj_na_koniec(poczatek, koniec, d);
+    }
+    fclose(plik);
+    printf("Wczytano dane z pliku %s.\n", nazwa_pliku);
+}
+
+void zamien_elementy(struct element** poczatek, struct element** koniec, struct element* a, struct element* b) {
+    struct element* prevA = a->poprzedni;
+    struct element* nextB = b->nastepny;
+
+    a->nastepny = nextB;
+    a->poprzedni = b;
+    b->nastepny = a;
+    b->poprzedni = prevA;
+
+    if (prevA != NULL) prevA->nastepny = b;
+    else *poczatek = b;
+
+    if (nextB != NULL) nextB->poprzedni = a;
+    else *koniec = a;
+}
+
+void sortuj_liste(struct element** poczatek, struct element** koniec, int kryterium) {
+    if (*poczatek == NULL) return;
+    int zamiana;
+    struct element* obecny;
+    struct element* nastepny_elem = NULL;
+
+    do {
+        zamiana = 0;
+        obecny = *poczatek;
+        while (obecny->nastepny != nastepny_elem) {
+            if (porownaj(obecny->dane, obecny->nastepny->dane, kryterium) > 0) {
+                struct element* temp = obecny->nastepny;
+                zamien_elementy(poczatek, koniec, obecny, temp);
+                zamiana = 1;
+            }
+            else {
+                obecny = obecny->nastepny;
+            }
+        }
+        nastepny_elem = obecny;
+    } while (zamiana);
+    printf("Lista zostala posortowana.\n");
+}
